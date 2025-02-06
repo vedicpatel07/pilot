@@ -1,0 +1,8 @@
+uvicorn
+fastapi
+json-numpy
+torch
+transformers
+python-dotenv
+draccus
+Pillow
