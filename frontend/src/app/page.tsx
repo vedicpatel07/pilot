@@ -4,52 +4,47 @@ import Link from 'next/link'
 export default function Home() {
   return (
     <div className="max-w-4xl mx-auto text-center">
-      <h1 className="text-4xl font-bold text-slate-900 mb-6">
-        Robot Task Automation
-      </h1>
-      
-      <p className="text-xl text-slate-600 mb-12">
-        Create, manage, and automate physical tasks using natural language commands
-      </p>
-
-      <div className="flex flex-col sm:flex-row justify-center gap-4">
-        <Link 
-          href="/chat"
-          className="bg-slate-900 text-white px-8 py-4 rounded-lg hover:bg-slate-800 transition-colors
-            text-lg font-semibold shadow-lg hover:shadow-xl"
-        >
-          Create New Task
-        </Link>
-        
-        <Link
-          href="/tasks"
-          className="bg-slate-800 text-white px-8 py-4 rounded-lg hover:bg-slate-700 transition-colors
-            text-lg font-semibold shadow-lg hover:shadow-xl"
-        >
-          View All Tasks
-        </Link>
-      </div>
-
-      <div className="mt-16 grid grid-cols-1 md:grid-cols-3 gap-8">
-        <div className="p-6 bg-white rounded-lg shadow-md">
-          <h2 className="text-xl font-bold text-slate-900 mb-3">Natural Language</h2>
-          <p className="text-slate-600">
-            Describe tasks in plain English and let our AI translate them into robot commands
+      <div className="flex flex-col items-center justify-center gap-16 mb-16 antialiased">
+        <div className="text-center space-y-4">
+          <h1 className="text-5xl font-semibold">
+            Control your robot with natural language
+          </h1>
+          <p className="text-slate-500 text-lg">
+            Create, save and execute robot tasks using simple English commands
           </p>
         </div>
 
-        <div className="p-6 bg-white rounded-lg shadow-md">
-          <h2 className="text-xl font-bold text-slate-900 mb-3">Save & Reuse</h2>
-          <p className="text-slate-600">
-            Store your most common tasks and execute them again with a single click
-          </p>
+        <div className="flex flex-col sm:flex-row gap-4">
+          <Link 
+            href="/chat"
+            className="bg-black text-white px-8 py-4 rounded hover:bg-[#1a1a1a] transition-colors"
+          >
+            Create New Task
+          </Link>
+          
+          <Link
+            href="/tasks" 
+            className="bg-white text-black px-8 py-4 rounded border border-black/[.08] hover:bg-[#f2f2f2] transition-colors"
+          >
+            View Tasks
+          </Link>
         </div>
 
-        <div className="p-6 bg-white rounded-lg shadow-md">
-          <h2 className="text-xl font-bold text-slate-900 mb-3">Automation</h2>
-          <p className="text-slate-600">
-            Set task repetitions and let the robot handle your repetitive workflows
-          </p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 w-full max-w-4xl">
+          <div className="bg-white border border-black/[.08] p-8 rounded">
+            <h2 className="text-xl font-semibold mb-3">Natural Language</h2>
+            <p className="text-slate-500">Create robot tasks using simple English commands</p>
+          </div>
+
+          <div className="bg-white border border-black/[.08] p-8 rounded">
+            <h2 className="text-xl font-semibold mb-3">Save & Reuse</h2>
+            <p className="text-slate-500">Store your common tasks for quick execution</p>
+          </div>
+
+          <div className="bg-white border border-black/[.08] p-8 rounded">
+            <h2 className="text-xl font-semibold mb-3">Automation</h2>
+            <p className="text-slate-500">Set repetitions and let the robot handle your workflow</p>
+          </div>
         </div>
       </div>
     </div>
