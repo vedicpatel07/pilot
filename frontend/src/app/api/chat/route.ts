@@ -1,17 +1,23 @@
 import { NextResponse } from 'next/server'
 import Anthropic from "@anthropic-ai/sdk";
+import { promises as fs } from 'fs';
+import path from 'path';
 
 const anthropic = new Anthropic({
-  apiKey: "put_your_api_key_here",
+  apiKey: "put keys in the bag lil bro",
 });
 
 export async function POST(req: Request) {
   try {
     const { message } = await req.json()
 
+    // Read the prompt file
+    const promptPath = path.join(process.cwd(), 'src/app/prompts/robotInterpreter.txt');
+    const systemPrompt = await fs.readFile(promptPath, 'utf8');
+
     const response = await anthropic.messages.create({
       model: "claude-3-5-sonnet-20241022",
-      system: "You are a robot task interpreter. Convert natural language into specific robot commands. Be precise and clear.",
+      system: systemPrompt,
       messages: [{
         role: "user",
         content: message
