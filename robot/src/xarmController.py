@@ -22,6 +22,15 @@ class XArmController:
         self.is_radian = is_radian
         self._setup_robot()
     
+    def _set_custom_home(self) -> None:
+        """Set custom home position for the robot."""
+        joint_angles = [35.6, -27.5, -21.7, 50.9, 0.0]
+        ret = self.arm.set_servo_angle(angle=joint_angles, wait=True)
+        if ret == 0:
+            logger.info("Custom home position set successfully")
+        else:
+            logger.error(f"Failed to set custom home position, error code: {ret}")
+            
     def _setup_robot(self) -> None:
         """Initial robot setup and configuration."""
         self.arm.clean_warn()
@@ -29,7 +38,10 @@ class XArmController:
         self.arm.motion_enable(True)
         self.arm.set_mode(0)  # Position control mode
         self.arm.set_state(state=0)  # Start state
-        logger.info("Robot initialized successfully")
+        
+        # Move to our defined "home" position
+        self._set_custom_home()
+        logger.info("Robot initialized and moved to home position")
     
     def connect(self) -> bool:
         """

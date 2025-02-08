@@ -74,21 +74,54 @@ class RobotCommander:
     def _convert_camera_to_robot_frame(self, camera_pos: Tuple[float, float, float]) -> Tuple[float, float, float]:
         """
         Convert coordinates from camera frame to robot frame.
-        Note: This is a simplified transformation - you'll need to calibrate 
-        the actual transformation matrix for your setup.
+        Camera is:
+        - 270mm right of robot (+X)
+        - 460mm above robot base (+Z)
+        - Rotated 25° CCW around Z (-25° rotation)
+        - Tilted 30° down around Y (-30° rotation)
         """
-        # Example transformation - adjust based on your setup
-        camera_to_robot = np.array([
-            [1, 0, 0, 400],    # X offset from robot base to camera
-            [0, -1, 0, 0],     # Y axis is typically inverted
-            [0, 0, -1, 800],   # Z axis is typically inverted, offset for height
+        # Convert degrees to radians
+        theta_z = np.radians(-25)  # -25° around Z
+        theta_y = np.radians(-30)  # -30° around Y
+        
+        # Rotation matrix around Z axis (yaw)
+        Rz = np.array([
+            [np.cos(theta_z), -np.sin(theta_z), 0, 0],
+            [np.sin(theta_z), np.cos(theta_z), 0, 0],
+            [0, 0, 1, 0],
             [0, 0, 0, 1]
         ])
         
-        # Convert to homogeneous coordinates
-        camera_point = np.array([*camera_pos, 1])
-        robot_point = camera_to_robot @ camera_point
+        # Rotation matrix around Y axis (pitch)
+        Ry = np.array([
+            [np.cos(theta_y), 0, np.sin(theta_y), 0],
+            [0, 1, 0, 0],
+            [-np.sin(theta_y), 0, np.cos(theta_y), 0],
+            [0, 0, 0, 1]
+        ])
         
+        # Translation matrix (camera position relative to robot base)
+        T = np.array([
+            [1, 0, 0, 270],  # 270mm in +X
+            [0, 1, 0, 0],    # 0mm in Y
+            [0, 0, 1, 460],  # 460mm in +Z
+            [0, 0, 0, 1]
+        ])
+        
+        # Combined transformation matrix (translation * rotation_z * rotation_y)
+        # Order: First rotate around Y, then Z, then translate
+        H = T @ Rz @ Ry
+        
+        # Invert the transformation to get camera-to-robot transform
+        H_inv = np.linalg.inv(H)
+        
+        # Convert camera coordinates to homogeneous coordinates
+        camera_point = np.array([*camera_pos, 1])
+        
+        # Transform to robot coordinates
+        robot_point = H_inv @ camera_point
+        
+        # Return just the position components (x,y,z)
         return tuple(robot_point[:3])
 
     async def execute_command_sequence(self, commands: List[str]) -> bool:
@@ -291,7 +324,7 @@ if __name__ == "__main__":
 
             # Example command sequence
             commands = [
-                "move the book"
+                "move book"
             ]
             
             success = await commander.execute_command_sequence(commands)
