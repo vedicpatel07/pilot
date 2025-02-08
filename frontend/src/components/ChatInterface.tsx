@@ -1,10 +1,10 @@
 // src/components/ChatInterface.tsx
 'use client';  // Add this at the very top
-import { useState } from 'react'
+import React, { useState } from 'react'
 
 
 type Message = {
-  role: 'user' | 'assistant'
+  role: 'user' | 'assistant' | 'bot'
   content: string
 }
 
@@ -49,16 +49,13 @@ function SaveTaskDialog({ onSave, onCancel }: SaveTaskDialogProps) {
 }
 
 // Main Chat Interface Component
-export default function ChatInterface() {
+const ChatInterface = () => {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [showSaveDialog, setShowSaveDialog] = useState(false)
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!input.trim() || isLoading) return
-
+  const handleSendMessage = async () => {
     // Add user message to chat
     const userMessage: Message = { role: 'user', content: input }
     setMessages(prev => [...prev, userMessage])
@@ -76,20 +73,16 @@ export default function ChatInterface() {
       if (!response.ok) throw new Error('Failed to send message')
 
       const data = await response.json()
-      
-      // Add assistant's response to chat
-      const assistantMessage: Message = {
-        role: 'assistant',
-        content: data.message
-      }
-      setMessages(prev => [...prev, assistantMessage])
+      // Handle the response data
+      const botMessage: Message = { role: 'bot', content: data.message }
+      setMessages(prev => [...prev, botMessage])
 
       // If the response includes task commands, show save dialog
       if (data.commands?.length > 0) {
         setShowSaveDialog(true)
       }
     } catch (error) {
-      console.error('Error:', error)
+      console.error('Error sending message:', error)
       // Add error message to chat
       setMessages(prev => [...prev, {
         role: 'assistant',
@@ -164,7 +157,7 @@ export default function ChatInterface() {
       </div>
 
       {/* Input Area */}
-      <form onSubmit={handleSubmit} className="p-4 border-t border-slate-200">
+      <form onSubmit={(e) => { e.preventDefault(); handleSendMessage(); }} className="p-4 border-t border-slate-200">
         <div className="flex space-x-4">
           <input
             type="text"
@@ -195,3 +188,5 @@ export default function ChatInterface() {
     </div>
   )
 }
+
+export default ChatInterface
