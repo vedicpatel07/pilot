@@ -1,5 +1,5 @@
-from ..perception.perception import ScenePerception
-from .xarmController import XArmController
+from perception import ScenePerception
+from xarmController import XArmController
 import numpy as np
 from typing import Optional, Tuple, Dict, List, Union
 import logging
@@ -279,15 +279,19 @@ if __name__ == "__main__":
     async def main():
         commander = RobotCommander(
             robot_ip="192.168.1.197",
-            enable_visualization=True
+            enable_visualization=True  # Enables camera visualization
         )
         
         try:
+            # Get initial scene perception
+            objects = commander.perception.get_scene_objects()
+            print(f"Detected objects:")
+            for obj in objects:
+                print(f"- {obj['label']} at position {obj['position']}")
+
             # Example command sequence
             commands = [
-                "pick up can",
-                "move it to the box",
-                "drop the can in the box"
+                "move the book"
             ]
             
             success = await commander.execute_command_sequence(commands)

@@ -2,8 +2,9 @@ import pyrealsense2 as rs
 import numpy as np
 import cv2
 import torch
-from transformers import pipeline, SamModel, SamProcessor
+from transformers import DetrImageProcessor, DetrForObjectDetection
 from typing import List, Dict, Tuple, Optional
+from PIL import Image
 
 class CameraInterface:
     """Handles RealSense camera operations following Single Responsibility Principle"""
@@ -50,64 +51,71 @@ class CameraInterface:
 
 
 class VLModel:
-    """Handles visual language model operations"""
+    """Handles visual language model operations using DETR"""
     def __init__(self, device: str = None):
         if device is None:
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
             
-        # Initialize GroundingDINO using Hugging Face pipeline
-        self.detector = pipeline("object-detection", 
-                               model="IDEA-Research/GroundingDINO-T",
-                               device=self.device)
+        # Initialize DETR model and processor
+        self.processor = DetrImageProcessor.from_pretrained("facebook/detr-resnet-50")
+        self.model = DetrForObjectDetection.from_pretrained("facebook/detr-resnet-50").to(self.device)
         
-        # Initialize SAM
-        self.sam_model = SamModel.from_pretrained("facebook/sam-vit-huge").to(self.device)
-        self.sam_processor = SamProcessor.from_pretrained("facebook/sam-vit-huge")
+        # Load COCO class mappings
+        self.id2label = self.model.config.id2label
+        self.score_threshold = 0.7
 
     def detect_objects(self, image: np.ndarray, text_prompt: str = None) -> List[Dict]:
-        """Detects objects in the image using GroundingDINO and generates masks using SAM"""
-        # Convert BGR to RGB
-        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        """
+        Detects objects in the image using DETR
         
-        # Detect objects
-        if text_prompt:
-            detections = self.detector(image_rgb, text=text_prompt)
-        else:
-            detections = self.detector(image_rgb)
+        Args:
+            image: BGR image from camera
+            text_prompt: Optional text prompt to filter detections (matches partial strings)
             
-        # Process each detection with SAM
-        results = []
-        for det in detections:
-            box = [
-                det['box']['xmin'],
-                det['box']['ymin'],
-                det['box']['xmax'],
-                det['box']['ymax']
-            ]
+        Returns:
+            List of detections with boxes and labels
+        """
+        # Convert BGR to RGB and then to PIL Image
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        pil_image = Image.fromarray(image_rgb)
+        
+        # Prepare image for model
+        inputs = self.processor(images=pil_image, return_tensors="pt").to(self.device)
+        
+        # Get predictions
+        with torch.no_grad():
+            outputs = self.model(**inputs)
+        
+        # Convert outputs to COCO API
+        target_sizes = torch.tensor([pil_image.size[::-1]]).to(self.device)
+        results = self.processor.post_process_object_detection(
+            outputs, 
+            target_sizes=target_sizes, 
+            threshold=self.score_threshold
+        )[0]
+        
+        # Process detections
+        detections = []
+        for score, label, box in zip(results["scores"], results["labels"], results["boxes"]):
+            box = box.cpu().numpy()
+            label_str = self.id2label[label.item()]
             
-            # Generate mask using SAM
-            inputs = self.sam_processor(
-                image_rgb,
-                input_boxes=[[box]],
-                return_tensors="pt"
-            ).to(self.device)
-            
-            with torch.no_grad():
-                outputs = self.sam_model(**inputs)
-                masks = outputs.pred_masks.squeeze(1)
-                scores = outputs.iou_scores
-            
-            # Convert mask to numpy
-            mask = masks[0].cpu().numpy()
-            
-            results.append({
-                'label': det['label'],
-                'score': det['score'],
-                'box': box,
-                'mask': mask
+            # Filter by text prompt if provided
+            if text_prompt and text_prompt.lower() not in label_str.lower():
+                continue
+                
+            detections.append({
+                'label': label_str,
+                'score': score.item(),
+                'box': {
+                    'xmin': float(box[0]),
+                    'ymin': float(box[1]),
+                    'xmax': float(box[2]),
+                    'ymax': float(box[3])
+                }
             })
             
-        return results
+        return detections
 
 
 class ScenePerception:
@@ -122,13 +130,15 @@ class ScenePerception:
         """Returns all detected objects in the current scene"""
         color_image, depth_image = self.camera.get_frames()
         
-        # Get detections and masks
+        # Get detections
         detections = self.vlm.detect_objects(color_image, text_prompt)
         
         # Process detections
         objects = []
         for det in detections:
-            x1, y1, x2, y2 = map(int, det['box'])
+            box = det['box']
+            x1, y1 = int(box['xmin']), int(box['ymin'])
+            x2, y2 = int(box['xmax']), int(box['ymax'])
             center_x = (x1 + x2) // 2
             center_y = (y1 + y2) // 2
             
@@ -141,8 +151,7 @@ class ScenePerception:
                 'label': det['label'],
                 'score': det['score'],
                 'position': position,
-                'box': [x1, y1, x2, y2],
-                'mask': det['mask']
+                'box': [x1, y1, x2, y2]
             })
         
         self.current_objects = objects
@@ -162,14 +171,9 @@ class ScenePerception:
 
     def _visualize(self, color_image: np.ndarray, depth_image: np.ndarray, 
                   objects: List[Dict]):
-        """Visualizes detections, segmentation masks, and depth map"""
-        # Create copies for different visualizations
+        """Visualizes detections and depth map"""
+        # Create copies for visualization
         bbox_vis = color_image.copy()
-        mask_vis = color_image.copy()
-        combined_vis = color_image.copy()
-        
-        # Create a combined mask for all objects
-        combined_mask = np.zeros_like(color_image)
         
         # Generate random colors for each object
         colors = [(np.random.randint(0, 255), 
@@ -181,50 +185,58 @@ class ScenePerception:
             
             # Draw bounding box
             cv2.rectangle(bbox_vis, (x1, y1), (x2, y2), color, 2)
-            cv2.rectangle(combined_vis, (x1, y1), (x2, y2), color, 2)
-            
-            # Draw mask if available
-            if 'mask' in obj:
-                # Convert binary mask to BGR
-                mask = obj['mask'].astype(np.uint8)
-                colored_mask = np.zeros_like(color_image)
-                colored_mask[mask > 0] = color
-                
-                # Add mask to visualizations
-                mask_vis = cv2.addWeighted(mask_vis, 1, colored_mask, 0.5, 0)
-                combined_vis = cv2.addWeighted(combined_vis, 1, colored_mask, 0.3, 0)
-                combined_mask = cv2.addWeighted(combined_mask, 1, colored_mask, 1, 0)
             
             # Add labels
             label = f"{obj['label']} ({obj['score']:.2f})"
             pos = obj['position']
             coords = f"X:{pos[0]:.2f} Y:{pos[1]:.2f} Z:{pos[2]:.2f}"
             
-            # Add text to both bbox and combined visualizations
-            for vis in [bbox_vis, combined_vis]:
-                cv2.putText(vis, label, (x1, y1 - 10), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-                cv2.putText(vis, coords, (x1, y1 + 20),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+            cv2.putText(bbox_vis, label, (x1, y1 - 10), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+            cv2.putText(bbox_vis, coords, (x1, y1 + 20),
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
         
-        # Create depth visualization
-        depth_vis = cv2.applyColorMap(
-            cv2.convertScaleAbs(depth_image, alpha=0.03),
-            cv2.COLORMAP_JET
-        )
+        # Create depth visualization with dots
+        MIN_DEPTH = 0.3 * 1000  # 0.3 meters in mm
+        MAX_DEPTH = 3.0 * 1000  # 3 meters in mm
+        DOT_SPACING = 8  # Space between dots in pixels
         
-        # Add mask contours to depth visualization
-        if combined_mask.any():
-            mask_gray = cv2.cvtColor(combined_mask, cv2.COLOR_BGR2GRAY)
-            contours, _ = cv2.findContours(mask_gray, 
-                                         cv2.RETR_EXTERNAL, 
-                                         cv2.CHAIN_APPROX_SIMPLE)
-            cv2.drawContours(depth_vis, contours, -1, (0, 255, 0), 2)
+        # Create black background
+        h, w = depth_image.shape
+        depth_vis = np.zeros((h, w, 3), dtype=np.uint8)
         
-        # Show all visualizations
-        cv2.imshow("Bounding Boxes", bbox_vis)
-        cv2.imshow("Segmentation Masks", mask_vis)
-        cv2.imshow("Combined View", combined_vis)
+        # Create dot mask
+        y_coords, x_coords = np.meshgrid(range(h), range(w), indexing='ij')
+        dot_mask = (y_coords % DOT_SPACING == 0) & (x_coords % DOT_SPACING == 0)
+        
+        # Get depth values at dot positions
+        depths = np.clip(depth_image, MIN_DEPTH, MAX_DEPTH)
+        
+        # Create color mapping for valid depths
+        for y in range(0, h, DOT_SPACING):
+            for x in range(0, w, DOT_SPACING):
+                if dot_mask[y, x]:
+                    depth = depths[y, x]
+                    # Normalize depth to 0-1 range
+                    norm_depth = (depth - MIN_DEPTH) / (MAX_DEPTH - MIN_DEPTH)
+                    
+                    # Create color gradient: red (warm) to blue (cold)
+                    if norm_depth < 0.5:
+                        # Warm colors (red to yellow)
+                        r = 255
+                        g = int(norm_depth * 2 * 255)
+                        b = 0
+                    else:
+                        # Cold colors (yellow to blue)
+                        r = int((1 - norm_depth) * 2 * 255)
+                        g = int((1 - norm_depth) * 2 * 255)
+                        b = int((norm_depth - 0.5) * 2 * 255)
+                    
+                    # Draw colored dot
+                    cv2.circle(depth_vis, (x, y), 1, (b, g, r), -1)
+        
+        # Show visualizations
+        cv2.imshow("Object Detection", bbox_vis)
         cv2.imshow("Depth Map", depth_vis)
         cv2.waitKey(1)
 
@@ -234,13 +246,15 @@ class ScenePerception:
         cv2.destroyAllWindows()
 
 
-# Example usage
 if __name__ == "__main__":
     perception = ScenePerception(enable_visualization=True)
     try:
         while True:
             objects = perception.get_scene_objects()
-            # Process objects as needed
+            if objects:
+                print(f"Detected {len(objects)} objects:")
+                for obj in objects:
+                    print(f"- {obj['label']} (confidence: {obj['score']:.2f})")
             
     except KeyboardInterrupt:
         perception.stop()
